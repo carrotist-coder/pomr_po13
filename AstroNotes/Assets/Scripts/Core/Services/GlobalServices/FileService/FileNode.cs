@@ -7,12 +7,14 @@ public class FileNode
     public string FullPath;
     public bool IsDirectory;
     
-    public List<FileNode> children = new();
+    public FileNode Parent;
+    public List<FileNode> Children = new();
     
-    public FileNode(string name, string fullPath, bool isDirectory)
+    public FileNode(string name, string fullPath, FileNode parent, bool isDirectory)
     {
         Name = name;
         FullPath = fullPath;
+        Parent = parent;
         IsDirectory = isDirectory;
     }
 }

@@ -10,7 +10,7 @@ public class GlobalServiceLocator : MonoBehaviour
 
     private void Awake()
     {
-        IFileService _fileManager = new FileManager();
+        _fileManager = new FileManager();
         
         _sceneLoader = GetComponent<SceneLoader>();
         

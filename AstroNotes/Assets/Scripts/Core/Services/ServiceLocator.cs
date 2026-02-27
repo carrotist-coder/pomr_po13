@@ -9,7 +9,7 @@ public class ServiceLocator
     private static ServiceLocator _currentInstance;
     
     private readonly Dictionary<string, IService> _services = new();
-
+    
     public static ServiceLocator Global
     {
         get
@@ -47,6 +47,13 @@ public class ServiceLocator
 
     public void Register<T>(T service) where T : IService
     {
+        
+        if (service == null)
+        {
+            Debug.LogError($"[ServiceLocator] trying to register null for type: {typeof(T).Name}!");
+            return;
+        }
+        
         string key = typeof(T).Name;
 
         if (_services.ContainsKey(key))
