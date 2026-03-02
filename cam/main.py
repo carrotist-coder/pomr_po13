@@ -5,10 +5,11 @@ from mediapipe.tasks.python import vision
 import numpy as np
 from collections import deque
 import time
+from udp_server import UDPServer
 
 
 class HandGestureDetector:
-    def __init__(self, model_path='hand_landmarker.task'):
+    def __init__(self, model_path='hand_landmarker.task', udp_server=None):
         base_options = python.BaseOptions(model_asset_path=model_path)
         options = vision.HandLandmarkerOptions(
             base_options=base_options,
@@ -17,6 +18,8 @@ class HandGestureDetector:
             min_hand_presence_confidence=0.5
         )
         self.detector = vision.HandLandmarker.create_from_options(options)
+
+        self.udp_server = udp_server
 
         self.HAND_CONNECTIONS = [
             (0, 1), (1, 2), (2, 3), (3, 4),  # большой палец
@@ -30,7 +33,10 @@ class HandGestureDetector:
         self.prev_time = time.time()
         self.fps_counter = deque(maxlen=30)
 
-    def calculate_index_finger_vector(self, hand_landmarks, frame_shape):
+        self.last_send_time = 0
+
+    @staticmethod
+    def calculate_index_finger_vector(hand_landmarks, frame_shape):
         points = []
         for landmark in hand_landmarks:
             x = int(landmark.x * frame_shape[1])
@@ -67,6 +73,7 @@ class HandGestureDetector:
         # распознавание
         detection_result = self.detector.detect(mp_image)
 
+        hand_detected = False
         if detection_result.hand_landmarks:
             for hand_idx, hand_landmarks in enumerate(detection_result.hand_landmarks):
                 points = []
@@ -87,6 +94,7 @@ class HandGestureDetector:
                 # вектор указательного пальца
                 vector_data = self.calculate_index_finger_vector(hand_landmarks, frame.shape)
                 if vector_data:
+                    hand_detected = True
                     norm_vector, start_point, end_point = vector_data
 
                     cv2.arrowedLine(annotated_frame, start_point, end_point,
@@ -106,6 +114,27 @@ class HandGestureDetector:
                                 (10, y_offset + 25),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
+                    if hand_idx == 0 and self.udp_server:
+                        self.udp_server.update_vector(norm_vector)
+                        self.last_send_time = current_time
+
+        if not hand_detected:
+            cv2.putText(annotated_frame, "NO HAND DETECTED",
+                        (10, 100), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7, (0, 0, 255), 2)
+
+        if self.udp_server:
+            status_color = (0, 255, 0) if self.udp_server.sent_count > 0 else (100, 100, 100)
+            cv2.putText(annotated_frame, f"UDP: {self.udp_server.ip}:{self.udp_server.port}",
+                        (10, 150), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6, status_color, 2)
+
+            if self.udp_server.last_sent_data:
+                last_text = f"Last: ({self.udp_server.last_sent_data['x']:.2f}, {self.udp_server.last_sent_data['y']:.2f})"
+                cv2.putText(annotated_frame, last_text,
+                            (10, 175), cv2.FONT_HERSHEY_SIMPLEX,
+                            0.5, (200, 200, 0), 1)
+
         cv2.putText(annotated_frame, f"FPS: {avg_fps:.1f}", (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
@@ -113,24 +142,36 @@ class HandGestureDetector:
 
 
 def main():
-    detector = HandGestureDetector()
+    udp_server = UDPServer(
+        ip="127.0.0.1",  # localhost
+        port=5005,
+        broadcast_interval=0.05
+    )
+    udp_server.start()
+    detector = HandGestureDetector(
+        model_path='hand_landmarker.task',
+        udp_server=udp_server
+    )
     cap = cv2.VideoCapture(0)
+    print(f"UDP сервер отправляет данные на {udp_server.ip}:{udp_server.port}")
 
-    while cap.isOpened():
-        success, frame = cap.read()
-        if not success:
-            break
+    try:
+        while cap.isOpened():
+            success, frame = cap.read()
+            if not success:
+                break
 
-        frame = cv2.flip(frame, 1)
-        annotated_frame = detector.process_frame(frame)
-        cv2.imshow('Index Finger Vector Detection', annotated_frame)
+            frame = cv2.flip(frame, 1)
+            annotated_frame = detector.process_frame(frame)
+            cv2.imshow('Index Finger Vector Detection + UDP Server', annotated_frame)
 
-        if cv2.waitKey(1) & 0xFF == 27:
-            break
-
-    detector.detector.close()
-    cap.release()
-    cv2.destroyAllWindows()
+            if cv2.waitKey(1) & 0xFF == 27:
+                break
+    finally:
+        detector.detector.close()
+        cap.release()
+        cv2.destroyAllWindows()
+        udp_server.stop()
 
 
 if __name__ == "__main__":
