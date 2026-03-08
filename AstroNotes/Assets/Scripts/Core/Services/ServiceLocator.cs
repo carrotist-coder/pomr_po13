@@ -47,7 +47,6 @@ public class ServiceLocator
 
     public void Register<T>(T service) where T : IService
     {
-        
         if (service == null)
         {
             Debug.LogError($"[ServiceLocator] trying to register null for type: {typeof(T).Name}!");

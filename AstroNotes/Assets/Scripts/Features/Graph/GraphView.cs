@@ -5,6 +5,7 @@ using UnityEngine;
 public class GraphView : MonoBehaviour
 {
     private IFileService _fileService;
+    private List<FileNode> _fileNodes = new();
 
     private FileNode _tree;
     void Start()
@@ -24,6 +25,8 @@ public class GraphView : MonoBehaviour
         else
             Debug.LogWarning("Empty tree.");
     }
+    
+    
     
     public void DebugLogStructure(FileNode node, int indent = 0)
     {
