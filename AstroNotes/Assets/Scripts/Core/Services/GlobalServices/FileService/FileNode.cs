@@ -17,4 +17,18 @@ public class FileNode
         Parent = parent;
         IsDirectory = isDirectory;
     }
+    
+    public int GetLeafCount(FileNode node)
+    {
+        if (node.Children.Count == 0) 
+            return 1;
+    
+        int count = 0;
+        foreach (var child in node.Children)
+        {
+            count += GetLeafCount(child);
+        }
+        
+        return count;
+    }
 }
