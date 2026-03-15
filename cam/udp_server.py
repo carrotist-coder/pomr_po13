@@ -15,15 +15,14 @@ class UDPServer:
 
         self.data_queue = queue.Queue()
         self.running = True
+        self.fist_detected = False
 
         # Для отладки
         self.sent_count = 0
 
-    def send_vector(self, vector_data):
+    def send_data(self, data):
         try:
-            x = float(vector_data[0])
-            y = float(vector_data[1])
-            message = f"{x:.4f} {y:.4f}".encode('utf-8')
+            message = data.encode('utf-8')
             self.socket.sendto(message, (self.ip, self.port))
             self.sent_count += 1
             print(f"Отправлено ({self.sent_count}): {message}")
@@ -36,8 +35,8 @@ class UDPServer:
 
         while self.running:
             try:
-                vector_data = self.data_queue.get(timeout=1.0)
-                self.send_vector(vector_data)
+                data = self.data_queue.get(timeout=1.0)
+                self.send_data(data)
                 time.sleep(self.broadcast_interval)
             except queue.Empty:
                 continue
@@ -58,7 +57,21 @@ class UDPServer:
                     self.data_queue.get_nowait()
                 except queue.Empty:
                     break
-            self.data_queue.put(vector_data)
+            x = float(vector_data[0])
+            y = float(vector_data[1])
+            message = f"{x:.4f} {y:.4f}"
+            self.data_queue.put(message)
+
+    def update_fist_detected(self, is_fist):
+        if is_fist != self.fist_detected:
+            self.fist_detected = is_fist
+            if is_fist:
+                while not self.data_queue.empty():
+                    try:
+                        self.data_queue.get_nowait()
+                    except queue.Empty:
+                        break
+                self.data_queue.put("ok")
 
     def stop(self):
         self.running = False
