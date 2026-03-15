@@ -142,11 +142,7 @@ class HandGestureDetector:
 
 
 def main():
-    udp_server = UDPServer(
-        ip="127.0.0.1",  # localhost
-        port=5005,
-        broadcast_interval=0.05
-    )
+    udp_server = UDPServer()
     udp_server.start()
     detector = HandGestureDetector(
         model_path='hand_landmarker.task',
