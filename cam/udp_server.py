@@ -1,5 +1,4 @@
 import socket
-import json
 import threading
 import time
 import queue
@@ -19,18 +18,15 @@ class UDPServer:
 
         # Для отладки
         self.sent_count = 0
-        self.last_sent_data = None
 
     def send_vector(self, vector_data):
         try:
-            data = {
-                'x': float(vector_data[0]),
-                'y': float(vector_data[1])
-            }
-            message = json.dumps(data).encode('utf-8')
+            x = float(vector_data[0])
+            y = float(vector_data[1])
+            message = f"{x:.4f} {y:.4f}".encode('utf-8')
             self.socket.sendto(message, (self.ip, self.port))
             self.sent_count += 1
-            self.last_sent_data = data
+            print(f"Отправлено ({self.sent_count}): {message}")
         except Exception as e:
             print(f"Ошибка отправки: {e}")
 
@@ -42,7 +38,6 @@ class UDPServer:
             try:
                 vector_data = self.data_queue.get(timeout=1.0)
                 self.send_vector(vector_data)
-                print(f"Отправлено ({self.sent_count}): x={vector_data[0]:.3f}, y={vector_data[1]:.3f}")
                 time.sleep(self.broadcast_interval)
             except queue.Empty:
                 continue

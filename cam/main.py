@@ -13,7 +13,7 @@ class HandGestureDetector:
         base_options = python.BaseOptions(model_asset_path=model_path)
         options = vision.HandLandmarkerOptions(
             base_options=base_options,
-            num_hands=2,
+            num_hands=1,
             min_hand_detection_confidence=0.5,
             min_hand_presence_confidence=0.5
         )
@@ -32,8 +32,6 @@ class HandGestureDetector:
 
         self.prev_time = time.time()
         self.fps_counter = deque(maxlen=30)
-
-        self.last_send_time = 0
 
     @staticmethod
     def calculate_index_finger_vector(hand_landmarks, frame_shape):
@@ -116,24 +114,11 @@ class HandGestureDetector:
 
                     if hand_idx == 0 and self.udp_server:
                         self.udp_server.update_vector(norm_vector)
-                        self.last_send_time = current_time
 
         if not hand_detected:
             cv2.putText(annotated_frame, "NO HAND DETECTED",
                         (10, 100), cv2.FONT_HERSHEY_SIMPLEX,
                         0.7, (0, 0, 255), 2)
-
-        if self.udp_server:
-            status_color = (0, 255, 0) if self.udp_server.sent_count > 0 else (100, 100, 100)
-            cv2.putText(annotated_frame, f"UDP: {self.udp_server.ip}:{self.udp_server.port}",
-                        (10, 150), cv2.FONT_HERSHEY_SIMPLEX,
-                        0.6, status_color, 2)
-
-            if self.udp_server.last_sent_data:
-                last_text = f"Last: ({self.udp_server.last_sent_data['x']:.2f}, {self.udp_server.last_sent_data['y']:.2f})"
-                cv2.putText(annotated_frame, last_text,
-                            (10, 175), cv2.FONT_HERSHEY_SIMPLEX,
-                            0.5, (200, 200, 0), 1)
 
         cv2.putText(annotated_frame, f"FPS: {avg_fps:.1f}", (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
