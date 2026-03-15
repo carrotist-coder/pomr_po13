@@ -5,135 +5,243 @@ from mediapipe.tasks.python import vision
 import numpy as np
 from collections import deque
 import time
+from udp_server import UDPServer
 
-base_options = python.BaseOptions(model_asset_path='hand_landmarker.task')
-options = vision.HandLandmarkerOptions(
-    base_options=base_options,
-    num_hands=2,
-    min_hand_detection_confidence=0.5,
-    min_hand_presence_confidence=0.5
-)
 
-detector = vision.HandLandmarker.create_from_options(options)
+class HandGestureDetector:
+    def __init__(self, model_path='hand_landmarker.task', udp_server=None):
+        base_options = python.BaseOptions(model_asset_path=model_path)
+        options = vision.HandLandmarkerOptions(
+            base_options=base_options,
+            num_hands=1,
+            min_hand_detection_confidence=0.5,
+            min_hand_presence_confidence=0.5
+        )
+        self.detector = vision.HandLandmarker.create_from_options(options)
 
-HAND_CONNECTIONS = [
-    # Большой палец
-    (0, 1), (1, 2), (2, 3), (3, 4),
-    # Указательный палец
-    (0, 5), (5, 6), (6, 7), (7, 8),
-    # Средний палец
-    (0, 9), (9, 10), (10, 11), (11, 12),
-    # Безымянный палец
-    (0, 13), (13, 14), (14, 15), (15, 16),
-    # Мизинец
-    (0, 17), (17, 18), (18, 19), (19, 20),
-    # Дополнительные соединения ладони
-    (5, 9), (9, 13), (13, 17)
-]
+        self.udp_server = udp_server
 
-cap = cv2.VideoCapture(0)
+        self.HAND_CONNECTIONS = [
+            (0, 1), (1, 2), (2, 3), (3, 4),  # большой палец
+            (0, 5), (5, 6), (6, 7), (7, 8),  # указательный
+            (0, 9), (9, 10), (10, 11), (11, 12),  # средний
+            (0, 13), (13, 14), (14, 15), (15, 16),  # безымянный
+            (0, 17), (17, 18), (18, 19), (19, 20),  # мизинец
+            (5, 9), (9, 13), (13, 17)  # соединения ладони
+        ]
 
-# Для измерения скорости
-prev_hand_positions = {}  # Словарь для хранения предыдущих позиций рук
-prev_time = time.time()
-fps_counter = deque(maxlen=30)
-speed_history = deque(maxlen=10)
+        self.prev_time = time.time()
+        self.fps_counter = deque(maxlen=30)
 
-while cap.isOpened():
-    success, frame = cap.read()
-    if not success:
-        break
+    @staticmethod
+    def calculate_index_finger_vector(hand_landmarks, frame_shape):
+        points = []
+        for landmark in hand_landmarks:
+            x = int(landmark.x * frame_shape[1])
+            y = int(landmark.y * frame_shape[0])
+            points.append((x, y))
 
-    frame = cv2.flip(frame, 1)
+        if len(points) < 21:
+            return None
 
-    annotated_frame = frame.copy()
+        # указательный палец
+        index_mcp = points[5]  # основание
+        index_tip = points[8]  # кончик
 
-    current_time = time.time()
-    fps = 1.0 / (current_time - prev_time) if prev_time else 0
-    prev_time = current_time
-    fps_counter.append(fps)
-    avg_fps = sum(fps_counter) / len(fps_counter)
+        vector = np.array([index_tip[0] - index_mcp[0], -(index_tip[1] - index_mcp[1])])
 
-    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+        norm = np.linalg.norm(vector)
+        if norm > 0:
+            normalized_vector = vector / norm
+            return normalized_vector, index_mcp, index_tip
+        return None
 
-    # распознавание
-    detection_result = detector.detect(mp_image)
+    @staticmethod
+    def is_fist_gesture(hand_landmarks, frame_shape):
+        points = []
+        for landmark in hand_landmarks:
+            x = int(landmark.x * frame_shape[1])
+            y = int(landmark.y * frame_shape[0])
+            points.append((x, y))
 
-    # Отрисовка точек и линий
-    current_hand_positions = {}
+        if len(points) < 21:
+            return False
 
-    if detection_result.hand_landmarks:
-        for hand_idx, hand_landmarks in enumerate(detection_result.hand_landmarks):
-            points = []
-            for landmark in hand_landmarks:
-                x = int(landmark.x * frame.shape[1])
-                y = int(landmark.y * frame.shape[0])
-                points.append((x, y))
+        finger_tips = [4, 8, 12, 16, 20]  # большой, указательный, средний, безымянный, мизинец
+        finger_pips = [3, 6, 10, 14, 18]  # средние суставы
+        finger_mcps = [2, 5, 9, 13, 17]  # основания
 
-            for connection in HAND_CONNECTIONS:
-                start_idx, end_idx = connection
-                if start_idx < len(points) and end_idx < len(points):
-                    cv2.line(annotated_frame, points[start_idx], points[end_idx],
-                             (255, 255, 0), 2)
+        # Центр ладони (приблизительно между основаниями пальцев)
+        palm_center_x = np.mean([points[i][0] for i in [0, 5, 9, 13, 17]])
+        palm_center_y = np.mean([points[i][1] for i in [0, 5, 9, 13, 17]])
+        palm_center = np.array([palm_center_x, palm_center_y])
 
-            for i, (x, y) in enumerate(points):
-                # точки
-                cv2.circle(annotated_frame, (x, y), 6, (0, 255, 0), -1)
-                cv2.circle(annotated_frame, (x, y), 8, (255, 255, 255), 2)
+        # Радиус ладони (среднее расстояние от центра до оснований)
+        palm_radius = np.mean([np.linalg.norm(np.array(points[i]) - palm_center)
+                               for i in [0, 5, 9, 13, 17]])
 
-                # подпись с номером
-                cv2.putText(annotated_frame, str(i), (x + 10, y - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
-                cv2.putText(annotated_frame, str(i), (x + 12, y - 12),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        bent_fingers = 0
 
-            if points:
-                current_hand_positions[hand_idx] = points[0]  # центр ладони (точка 0) для измерения скорости
+        for i, (tip_idx, pip_idx, mcp_idx) in enumerate(zip(finger_tips, finger_pips, finger_mcps)):
+            tip_point = np.array(points[tip_idx])
+            pip_point = np.array(points[pip_idx])
+            mcp_point = np.array(points[mcp_idx])
 
-                # скорость движения руки
-                if hand_idx in prev_hand_positions:
-                    prev_x, prev_y = prev_hand_positions[hand_idx]
-                    curr_x, curr_y = current_hand_positions[hand_idx]
+            # Расстояние от кончика до центра ладони
+            tip_to_palm_dist = np.linalg.norm(tip_point - palm_center)
 
-                    # Евклидово расстояние между кадрами
-                    distance = np.sqrt((curr_x - prev_x) ** 2 + (curr_y - prev_y) ** 2)
+            if i == 0:  # большой палец
+                # Проверяем, находится ли кончик большого пальца близко к ладони
+                if tip_to_palm_dist < palm_radius * 1.3:
+                    bent_fingers += 1
+            else:
+                # Для остальных пальцев: проверяем, согнут ли палец
+                # Вычисляем угол между векторами от основания до среднего сустава и от среднего до кончика
+                vec1 = pip_point - mcp_point
+                vec2 = tip_point - pip_point
 
-                    # Скорость в пикселях в секунду
-                    speed = distance * avg_fps
-                    speed_history.append(speed)
-                    avg_speed = sum(speed_history) / len(speed_history)
+                # Нормализуем векторы
+                norm1 = np.linalg.norm(vec1)
+                norm2 = np.linalg.norm(vec2)
 
-                    speed_text = f"Hand {hand_idx + 1} speed: {speed:.1f} px/s"
-                    cv2.putText(annotated_frame, speed_text,
-                                (10, 60 + hand_idx * 25),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 255), 2)
+                if norm1 > 0 and norm2 > 0:
+                    vec1_norm = vec1 / norm1
+                    vec2_norm = vec2 / norm2
 
-                    # Визуализация скорости цветом линий (чем быстрее, тем краснее)
-                    if speed > 50:
-                        for connection in HAND_CONNECTIONS:
-                            start_idx, end_idx = connection
-                            if start_idx < len(points) and end_idx < len(points):
-                                color_intensity = min(255, int(speed * 2))
-                                cv2.line(annotated_frame, points[start_idx], points[end_idx],
-                                         (0, 255 - color_intensity, 255), 3)
+                    # Косинус угла между векторами
+                    cos_angle = np.dot(vec1_norm, vec2_norm)
 
-    prev_hand_positions = current_hand_positions
+                    # Если угол большой (косинус маленький) - палец согнут
+                    if cos_angle < 0.5:  # угол больше 60 градусов
+                        bent_fingers += 1
+                    # Дополнительная проверка: кончик пальца близко к ладони
+                    elif tip_to_palm_dist < palm_radius * 1.2:
+                        bent_fingers += 1
 
-    cv2.putText(annotated_frame, f"FPS: {avg_fps:.1f}", (10, 30),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        # Также проверяем общую компактность руки
+        all_points = np.array(points)
+        hand_spread = np.max(np.linalg.norm(all_points - palm_center, axis=1))
 
-    if speed_history:
-        avg_speed_all = sum(speed_history) / len(speed_history)
-        cv2.putText(annotated_frame, f"Avg speed: {avg_speed_all:.1f} px/s",
-                    (10, 110) if detection_result.hand_landmarks else (10, 60),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+        # Если рука компактная и большинство пальцев согнуты - это кулак
+        is_fist = (bent_fingers >= 4 and hand_spread < palm_radius * 2.5) or bent_fingers >= 5
 
-    cv2.imshow('MediaPipe Hands - Speed Visualization', annotated_frame)
+        return is_fist
 
-    if cv2.waitKey(1) & 0xFF == 27:
-        break
+    def process_frame(self, frame):
+        annotated_frame = frame.copy()
 
-detector.close()
-cap.release()
-cv2.destroyAllWindows()
+        current_time = time.time()
+        fps = 1.0 / (current_time - self.prev_time) if self.prev_time else 0
+        self.prev_time = current_time
+        self.fps_counter.append(fps)
+        avg_fps = sum(self.fps_counter) / len(self.fps_counter)
+
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+
+        # распознавание
+        detection_result = self.detector.detect(mp_image)
+
+        hand_detected = False
+        if detection_result.hand_landmarks:
+            for hand_idx, hand_landmarks in enumerate(detection_result.hand_landmarks):
+                points = []
+                for landmark in hand_landmarks:
+                    x = int(landmark.x * frame.shape[1])
+                    y = int(landmark.y * frame.shape[0])
+                    points.append((x, y))
+
+                for connection in self.HAND_CONNECTIONS:
+                    start_idx, end_idx = connection
+                    if start_idx < len(points) and end_idx < len(points):
+                        cv2.line(annotated_frame, points[start_idx], points[end_idx],
+                                 (100, 100, 100), 1)
+
+                for i, (x, y) in enumerate(points):
+                    cv2.circle(annotated_frame, (x, y), 4, (0, 255, 0), -1)
+
+                hand_detected = True
+                current_is_fist = self.is_fist_gesture(hand_landmarks, frame.shape)
+
+                if current_is_fist:
+                    cv2.putText(annotated_frame, "FIST",
+                                (10, 60 + hand_idx * 40),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+
+                    # красный круг
+                    center_x = int(np.mean([p[0] for p in points]))
+                    center_y = int(np.mean([p[1] for p in points]))
+                    cv2.circle(annotated_frame, (center_x, center_y), 50, (0, 0, 255), 3)
+
+                    if hand_idx == 0 and self.udp_server:
+                        self.udp_server.update_fist_detected(True)
+                else:
+                    # Обычная рука
+                    vector_data = self.calculate_index_finger_vector(hand_landmarks, frame.shape)
+                    if vector_data:
+                        norm_vector, start_point, end_point = vector_data
+
+                        cv2.arrowedLine(annotated_frame, start_point, end_point,
+                                        (0, 0, 255), 4, tipLength=0.2)
+
+                        for i in [5, 6, 7, 8]:
+                            if i < len(points):
+                                cv2.circle(annotated_frame, points[i], 6, (0, 0, 255), -1)
+
+                        hand_text = f"Hand {hand_idx}"
+                        cv2.putText(annotated_frame, hand_text,
+                                    (10, 60 + hand_idx * 40),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+                        vec_text = f"Vector: ({norm_vector[0]:.2f}, {norm_vector[1]:.2f})"
+                        cv2.putText(annotated_frame, vec_text,
+                                    (10, 60 + hand_idx * 40 + 25),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+                        if hand_idx == 0 and self.udp_server:
+                            self.udp_server.update_vector(norm_vector)
+                            self.udp_server.update_fist_detected(False)
+
+        if not hand_detected:
+            cv2.putText(annotated_frame, "NO HAND DETECTED",
+                        (10, 100), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7, (0, 0, 255), 2)
+            if self.udp_server:
+                self.udp_server.update_fist_detected(False)
+
+        cv2.putText(annotated_frame, f"FPS: {avg_fps:.1f}", (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+        return annotated_frame
+
+
+def main():
+    udp_server = UDPServer()
+    udp_server.start()
+    detector = HandGestureDetector(
+        model_path='hand_landmarker.task',
+        udp_server=udp_server
+    )
+    cap = cv2.VideoCapture(0)
+    print(f"UDP сервер отправляет данные на {udp_server.ip}:{udp_server.port}")
+
+    try:
+        while cap.isOpened():
+            success, frame = cap.read()
+            if not success:
+                break
+
+            frame = cv2.flip(frame, 1)
+            annotated_frame = detector.process_frame(frame)
+            cv2.imshow('Hand Gesture Detection + UDP Server', annotated_frame)
+
+            if cv2.waitKey(1) & 0xFF == 27:
+                break
+    finally:
+        detector.detector.close()
+        cap.release()
+        cv2.destroyAllWindows()
+        udp_server.stop()
+
+
+if __name__ == "__main__":
+    main()
