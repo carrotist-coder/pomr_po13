@@ -5,7 +5,7 @@ import queue
 
 
 class UDPServer:
-    def __init__(self, ip="127.0.0.1", port=5005, broadcast_interval=0.5):
+    def __init__(self, ip="127.0.0.1", port=5005, broadcast_interval=1):
         self.server_thread = None
         self.ip = ip
         self.port = port
