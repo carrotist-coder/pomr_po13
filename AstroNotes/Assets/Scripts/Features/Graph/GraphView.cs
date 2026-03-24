@@ -1,7 +1,6 @@
-using System.Collections;
 using System.Collections.Generic;
+using Unity.VisualScripting;
 using UnityEngine;
-using System.Linq;
 
 public class GraphView : MonoBehaviour
 {
@@ -10,164 +9,295 @@ public class GraphView : MonoBehaviour
 
     private FileNode _tree;
     private FileNode _currentNode;
-    private Dictionary<FileNode, GameObject> _nodeObjects = new Dictionary<FileNode, GameObject>();
-    
+
+    private Dictionary<FileNode, GameObject> _nodeObjects = new();
+
+    [Header("Prefabs")]
     public GameObject folderPrefab;
     public GameObject filePrefab;
     public Material lineMaterial;
-    public float radiusStep = 3.0f;
 
-    [Header("Selection Settings")]
+    [Header("Layout")]
+    public float radiusStep = 3f;
+
+    [Header("Camera")]
+    public Camera mainCamera;
+
+    [Header("Selection")]
+    public float selectionThreshold = 0.8f;
+    public int requiredStableFrames = 2;
+
+    [Header("Colors")]
     public Color normalColor = Color.white;
     public Color selectedColor = Color.yellow;
-    [Range(0.5f, 1f)]
-    public float selectionThreshold = 0.8f;
+    public Color candidateColor = Color.cyan;
+    
+    [Header("Debug")]
+    public bool logDirections = true;
+
+    private FileNode _candidate;
+    private FileNode _lastCandidate;
+    private int _candidateCounter = 0;
 
     void Start()
     {
         _fileService = ServiceLocator.Global.Get<IFileService>();
         _udpReciever = FindObjectOfType<UdpReciever>();
 
-        if (_fileService == null) 
-        {
-            Debug.LogError("FileManager not found in ServiceLocator");
-            return;
-        }
-
         _tree = _fileService.GetFileStructure();
+        if (_tree == null) return;
 
-        if (_tree != null)
-        {
-            _currentNode = _tree;
-            DrawNode(_tree, 0f, 360f, 0);
-            HighlightNode(_currentNode);
-        }
+        DrawNode(_tree, 0f, 360f, 0);
+
+        _currentNode = _tree;
+        CenterCameraInstant();
+
+        HighlightNode(_currentNode);
+        
+        LogNodeDirections();
     }
 
     void Update()
     {
         if (_udpReciever == null || _currentNode == null) return;
 
-        Vector2 inputDir = _udpReciever.CurrentDirection;
+        Vector2 input = _udpReciever.CurrentDirection;
+        
+        if (input == Vector2.zero)
+            return;
+        
+        Debug.Log($"INPUT vector: {input}");
 
-        if (inputDir.sqrMagnitude > 0.01f)
+        if (input.magnitude > 0.2f)
         {
-            CheckNavigation(inputDir);
+            ProcessDirection(input.normalized);
+        }
+
+        if (_udpReciever.ConsumeFist())
+        {
+            if (_candidate != null)
+            {
+                Debug.Log($"GO TO: {_candidate.Name}");
+                ChangeSelection(_candidate);
+                ResetCandidate();
+            }
         }
     }
-
-    private void CheckNavigation(Vector2 fingerDir)
+    
+    private void LogNodeDirections()
     {
-        FileNode bestMatch = null;
-        float maxDot = -1f;
+        if (!logDirections || _currentNode == null) return;
 
+        Debug.Log($"===== CURRENT NODE: {_currentNode.Name} =====");
+
+        Vector3 center = mainCamera.transform.position;
+
+        // CHILDRENS
+        foreach (var child in _currentNode.Children)
+        {
+            if (!_nodeObjects.ContainsKey(child)) continue;
+
+            Vector2 dir = GetDirectionFromCamera(child);
+
+            Debug.Log($"CHILD: {child.Name} → {dir}");
+        }
+
+        // PARENT
+        if (_currentNode.Parent != null && _nodeObjects.ContainsKey(_currentNode.Parent))
+        {
+            Vector2 dir = GetDirectionFromCamera(_currentNode.Parent);
+
+            Debug.Log($"PARENT: {_currentNode.Parent.Name} → {dir}");
+        }
+
+        Debug.Log("=========================================");
+    }
+    
+    private void ProcessDirection(Vector2 fingerDir)
+    {
+        Debug.Log("PROCESS DIRECTION");
         List<FileNode> candidates = new List<FileNode>(_currentNode.Children);
-        if (_currentNode.Parent != null) candidates.Add(_currentNode.Parent);
+        if (_currentNode.Parent != null)
+            candidates.Add(_currentNode.Parent);
 
-        foreach (var candidate in candidates)
+        FileNode best = null;
+        float bestDot = -1f;
+
+        foreach (var node in candidates)
         {
-            if (!_nodeObjects.ContainsKey(candidate)) continue;
+            if (!_nodeObjects.ContainsKey(node)) continue;
 
-            Vector3 worldDir = _nodeObjects[candidate].transform.position - _nodeObjects[_currentNode].transform.position;
-            Vector2 directionToCandidate = new Vector2(worldDir.x, worldDir.y).normalized;
+            Vector2 nodeDir = GetDirectionFromCamera(node);
+            float dot = Vector2.Dot(fingerDir, nodeDir);
 
-            float dot = Vector2.Dot(fingerDir, directionToCandidate);
+            Debug.Log($"NODE: {node.Name} | dir: {nodeDir} | dot: {dot}");
 
-            if (dot > maxDot)
+            if (dot > bestDot)
             {
-                maxDot = dot;
-                bestMatch = candidate;
+                bestDot = dot;
+                best = node;
             }
         }
 
-        if (bestMatch != null && maxDot > selectionThreshold)
+        if (best != null && bestDot > selectionThreshold)
         {
-            if (bestMatch != _currentNode)
+            if (best == _lastCandidate)
             {
-                ChangeSelection(bestMatch);
+                _candidateCounter++;
             }
+            else
+            {
+                _candidateCounter = 1;
+                _lastCandidate = best;
+            }
+
+            if (_candidateCounter >= requiredStableFrames)
+            {
+                if (_candidate != best)
+                {
+                    SetCandidate(best);
+                }
+            }
+        }
+        else
+        {
+            ResetCandidate();
         }
     }
-
-    private void ChangeSelection(FileNode newNode)
+    private Vector2 GetDirectionFromCamera(FileNode node)
     {
-        SetNodeVisualState(_currentNode, normalColor, 1.0f);
-        
-        _currentNode = newNode;
-        
-        SetNodeVisualState(_currentNode, selectedColor, 1.2f);
-        
-        Debug.Log($"Selected: {_currentNode.Name}");
+        Vector3 camPos = mainCamera.transform.position;
+        Vector3 nodePos = _nodeObjects[node].transform.position;
+
+        Vector3 dir3 = (nodePos - camPos).normalized;
+
+        return new Vector2(dir3.x, dir3.y).normalized;
+    }
+    
+    private void SetCandidate(FileNode node)
+    {
+        ClearCandidate();
+
+        _candidate = node;
+        SetNodeColor(node, candidateColor);
+
+        Debug.Log($"CANDIDATE LOCKED: {node.Name}");
     }
 
-    private void SetNodeVisualState(FileNode node, Color color, float scale)
+    private void ResetCandidate()
+    {
+        ClearCandidate();
+        _lastCandidate = null;
+        _candidateCounter = 0;
+    }
+
+    private void ClearCandidate()
+    {
+        if (_candidate != null)
+            SetNodeColor(_candidate, normalColor);
+
+        _candidate = null;
+    }
+
+    private void ChangeSelection(FileNode node)
+    {
+        SetNodeVisual(_currentNode, normalColor, 1f);
+
+        _currentNode = node;
+
+        SetNodeVisual(_currentNode, selectedColor, 1.3f);
+
+        CenterCameraInstant();
+    }
+
+    private void CenterCameraInstant()
+    {
+        Vector3 pos = _nodeObjects[_currentNode].transform.position;
+        mainCamera.transform.position = new Vector3(pos.x, pos.y, -10f);
+    }
+
+    private void SetNodeVisual(FileNode node, Color color, float scale)
     {
         if (_nodeObjects.TryGetValue(node, out GameObject obj))
         {
-            var renderer = obj.GetComponentInChildren<Renderer>();
-            if (renderer != null) renderer.material.color = color;
-            
+            var r = obj.GetComponentInChildren<Renderer>();
+            if (r != null) r.material.color = color;
+
             obj.transform.localScale = Vector3.one * scale;
         }
+    }
+
+    private void SetNodeColor(FileNode node, Color color)
+    {
+        if (_nodeObjects.TryGetValue(node, out GameObject obj))
+        {
+            var r = obj.GetComponentInChildren<Renderer>();
+            if (r != null) r.material.color = color;
+        }
+    }
+
+    private void HighlightNode(FileNode node)
+    {
+        SetNodeVisual(node, selectedColor, 1.3f);
     }
 
     private void DrawNode(FileNode node, float minAngle, float maxAngle, int depth, Vector3 parentPos = default)
     {
         float angle = (minAngle + maxAngle) / 2f;
         float radius = depth * radiusStep;
-        Vector3 currentPos = PolarToCartesian(angle, radius);
+
+        Vector3 pos = PolarToCartesian(angle, radius);
 
         GameObject prefab = node.IsDirectory ? folderPrefab : filePrefab;
-        GameObject obj = Instantiate(prefab, currentPos, Quaternion.identity, transform);
-        
+        GameObject obj = Instantiate(prefab, pos, Quaternion.identity, transform);
+
         _nodeObjects[node] = obj;
 
         var text = obj.GetComponentInChildren<TMPro.TMP_Text>();
-        if (text != null) 
-        {
+        if (text != null)
             text.text = node.Name;
-        }
 
         if (node.Parent != null)
-            DrawLine(parentPos, currentPos);
+            DrawLine(parentPos, pos);
 
         if (node.Children.Count > 0)
         {
-            float totalLeaves = node.GetLeafCount(node);
-            float currentMinAngle = minAngle;
+            float total = node.GetLeafCount(node);
+            float current = minAngle;
 
-            for (int i = 0; i < node.Children.Count; i++)
+            foreach (var child in node.Children)
             {
-                FileNode child = node.Children[i];
-                float childWeight = child.GetLeafCount(child);
-                float childAngleRange = (childWeight / totalLeaves) * (maxAngle - minAngle);
-                float currentMaxAngle = currentMinAngle + childAngleRange;
-            
-                DrawNode(child, currentMinAngle, currentMaxAngle, depth + 1, currentPos);
-                currentMinAngle = currentMaxAngle;
+                float weight = child.GetLeafCount(child);
+                float range = (weight / total) * (maxAngle - minAngle);
+
+                DrawNode(child, current, current + range, depth + 1, pos);
+                current += range;
             }
         }
     }
 
-    private void HighlightNode(FileNode node) => SetNodeVisualState(node, selectedColor, 1.2f);
-
     private Vector3 PolarToCartesian(float angle, float radius)
     {
-        float radians = angle * Mathf.Deg2Rad;
-        return new Vector3(Mathf.Cos(radians) * radius, Mathf.Sin(radians) * radius, 0);
+        float rad = angle * Mathf.Deg2Rad;
+
+        return new Vector3(
+            Mathf.Cos(rad) * radius,
+            Mathf.Sin(rad) * radius,
+            0
+        );
     }
 
     private void DrawLine(Vector3 start, Vector3 end)
     {
-        GameObject lineObj = new GameObject("Line");
-        lineObj.transform.SetParent(transform);
-        LineRenderer lr = lineObj.AddComponent<LineRenderer>();
+        GameObject line = new GameObject("Line");
+        line.transform.SetParent(transform);
+
+        var lr = line.AddComponent<LineRenderer>();
         lr.material = lineMaterial;
         lr.startWidth = 0.05f;
         lr.endWidth = 0.05f;
         lr.positionCount = 2;
         lr.SetPosition(0, start);
         lr.SetPosition(1, end);
-        lr.sortingOrder = -1;
     }
 }

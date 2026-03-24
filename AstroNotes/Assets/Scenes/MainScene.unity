@@ -328,6 +328,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1630935179}
   - component: {fileID: 1630935178}
+  - component: {fileID: 1630935180}
   m_Layer: 0
   m_Name: MainManager
   m_TagString: Untagged
@@ -349,11 +350,15 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   folderPrefab: {fileID: 2082427105063596735, guid: 924d5f95a43d703489a8de6d2b78f847, type: 3}
   filePrefab: {fileID: 4131896899486907082, guid: 73382a0b68bb5a144b6c11b9455ab759, type: 3}
-  lineMaterial: {fileID: 2100000, guid: d75b8f41e959450c84ac6e967084d3e1, type: 2}
+  lineMaterial: {fileID: 10754, guid: 0000000000000000f000000000000000, type: 0}
   radiusStep: 3
+  mainCamera: {fileID: 128028133}
+  selectionThreshold: 0.3
+  requiredStableFrames: 1
   normalColor: {r: 1, g: 1, b: 1, a: 1}
   selectedColor: {r: 1, g: 0.92156863, b: 0.015686275, a: 1}
-  selectionThreshold: 0.8
+  candidateColor: {r: 0, g: 1, b: 1, a: 1}
+  logDirections: 1
 --- !u!4 &1630935179
 Transform:
   m_ObjectHideFlags: 0
@@ -369,6 +374,18 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1630935180
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1630935177}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f327a0bc5527f5b448ee3f9b184fb7b1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
