@@ -222,6 +222,8 @@ def main():
         udp_server=udp_server
     )
     cap = cv2.VideoCapture(0)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 200)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 150)
     print(f"UDP сервер отправляет данные на {udp_server.ip}:{udp_server.port}")
 
     try:
