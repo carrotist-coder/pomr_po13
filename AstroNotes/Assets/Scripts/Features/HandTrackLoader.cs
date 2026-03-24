@@ -59,7 +59,7 @@ public class HandTrackLoader : MonoBehaviour
             start.FileName = pythonPath;
             start.Arguments = $"\"{pythonScriptPath}\"";
             start.UseShellExecute = false;
-            start.CreateNoWindow = true; // Можно изменить на false если нужно видеть окно
+            start.CreateNoWindow = true;
             start.RedirectStandardOutput = true;
             start.RedirectStandardError = true;
             start.WorkingDirectory = projectPath;
@@ -75,12 +75,6 @@ public class HandTrackLoader : MonoBehaviour
             {
                 if (!string.IsNullOrEmpty(args.Data))
                     UnityEngine.Debug.Log($"Python: {args.Data}");
-            };
-
-            pythonProcess.ErrorDataReceived += (sender, args) =>
-            {
-                if (!string.IsNullOrEmpty(args.Data))
-                    UnityEngine.Debug.LogError($"Python Error: {args.Data}");
             };
 
             pythonProcess.BeginOutputReadLine();

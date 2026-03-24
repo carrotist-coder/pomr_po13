@@ -259,6 +259,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: befeba0609a6c7b4787547068ae2af72, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  listenPort: 5005
 --- !u!4 &1128295348
 Transform:
   m_ObjectHideFlags: 0
@@ -353,8 +354,8 @@ MonoBehaviour:
   lineMaterial: {fileID: 10754, guid: 0000000000000000f000000000000000, type: 0}
   radiusStep: 3
   mainCamera: {fileID: 128028133}
-  selectionThreshold: 0.3
-  requiredStableFrames: 1
+  selectionThreshold: 0.8
+  requiredStableFrames: 2
   normalColor: {r: 1, g: 1, b: 1, a: 1}
   selectedColor: {r: 1, g: 0.92156863, b: 0.015686275, a: 1}
   candidateColor: {r: 0, g: 1, b: 1, a: 1}
