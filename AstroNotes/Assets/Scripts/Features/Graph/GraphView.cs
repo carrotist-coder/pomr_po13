@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using Unity.VisualScripting;
 using UnityEngine;
 
 public class GraphView : MonoBehaviour
@@ -66,7 +65,7 @@ public class GraphView : MonoBehaviour
         if (input == Vector2.zero)
             return;
         
-        Debug.Log($"INPUT vector: {input}");
+        //Debug.Log($"INPUT vector: {input}");
 
         if (input.magnitude > 0.2f)
         {
@@ -130,7 +129,7 @@ public class GraphView : MonoBehaviour
             Vector2 nodeDir = GetDirectionFromCamera(node);
             float dot = Vector2.Dot(fingerDir, nodeDir);
 
-            Debug.Log($"NODE: {node.Name} | dir: {nodeDir} | dot: {dot}");
+            //Debug.Log($"NODE: {node.Name} | dir: {nodeDir} | dot: {dot}");
 
             if (dot > bestDot)
             {
@@ -193,7 +192,7 @@ public class GraphView : MonoBehaviour
 
     private void ClearCandidate()
     {
-        if (_candidate != null)
+        if (_candidate != null && _candidate != _currentNode)
             SetNodeColor(_candidate, normalColor);
 
         _candidate = null;
@@ -204,6 +203,7 @@ public class GraphView : MonoBehaviour
         SetNodeVisual(_currentNode, normalColor, 1f);
 
         _currentNode = node;
+        Debug.Log($"{node.Name}");
 
         SetNodeVisual(_currentNode, selectedColor, 1.3f);
 
