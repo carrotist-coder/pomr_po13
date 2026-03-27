@@ -1,32 +1,31 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 
 public class CameraZoom : MonoBehaviour
 {
-    private Camera _cam;
+    [SerializeField] private float _zoomSpeed = Constants.Camera.DefaultZoomSpeed;
+    [SerializeField] private float _minSize = Constants.Camera.DefaultMinSize;
+    [SerializeField] private float _maxSize = Constants.Camera.DefaultMaxSize;
     
-    public float zoomSpeed = 5f;
-    public float minSize = 2f;
-    public float maxSize = 50f;
-
-    void Start()
+    private Camera _camera;
+    
+    private void Start()
     {
-        _cam = GetComponent<Camera>();
+        _camera = GetComponent<Camera>();
         
-        if (!_cam.orthographic)
-            Debug.LogWarning("Set camera to Orthographic");
-    }
-
-    void Update()
-    {
-        float scroll = Input.GetAxis("Mouse ScrollWheel");
-
-        if (scroll != 0)
+        if (!_camera.orthographic)
         {
-            float targetSize = _cam.orthographicSize - scroll * zoomSpeed;
-
-            _cam.orthographicSize = Mathf.Clamp(targetSize, minSize, maxSize);
+            Debug.LogWarning("CameraZoom works best with orthographic camera");
         }
+    }
+    
+    private void Update()
+    {
+        var scrollDelta = Input.GetAxis("Mouse ScrollWheel");
+        
+        if (Mathf.Approximately(scrollDelta, 0))
+            return;
+            
+        var targetSize = _camera.orthographicSize - scrollDelta * _zoomSpeed;
+        _camera.orthographicSize = Mathf.Clamp(targetSize, _minSize, _maxSize);
     }
 }

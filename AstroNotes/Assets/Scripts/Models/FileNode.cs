@@ -3,13 +3,13 @@ using System.Collections.Generic;
 //DTO for IFileService
 public class FileNode
 {
-    public string Name;
-    public string FullPath;
-    public bool IsDirectory;
-    
-    public FileNode Parent;
-    public List<FileNode> Children = new();
-    
+    public string Name { get; }
+    public string FullPath { get; }
+    public bool IsDirectory { get; }
+
+    public FileNode Parent { get; }
+    public List<FileNode> Children { get; } = new();
+
     public FileNode(string name, string fullPath, FileNode parent, bool isDirectory)
     {
         Name = name;
@@ -18,17 +18,19 @@ public class FileNode
         IsDirectory = isDirectory;
     }
     
-    public int GetLeafCount(FileNode node)
+    public int GetLeafCount()
     {
-        if (node.Children.Count == 0) 
+        if (Children.Count == 0) 
             return 1;
     
         int count = 0;
-        foreach (var child in node.Children)
+        foreach (var child in Children)
         {
-            count += GetLeafCount(child);
+            count += child.GetLeafCount();
         }
         
         return count;
     }
+
+    public bool IsRoot => Parent == null;
 }
