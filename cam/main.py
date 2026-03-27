@@ -33,6 +33,10 @@ class HandGestureDetector:
         self.prev_time = time.time()
         self.fps_counter = deque(maxlen=30)
 
+        # Для сглаживания детекции кулака (избегаем мерцания)
+        self.fist_history = deque(maxlen=5)
+        self.vector_history = deque(maxlen=3)
+
     @staticmethod
     def calculate_index_finger_vector(hand_landmarks, frame_shape):
         points = []
@@ -57,6 +61,51 @@ class HandGestureDetector:
         return None
 
     @staticmethod
+    def is_index_finger(hand_landmarks, frame_shape):
+        points = []
+        for landmark in hand_landmarks:
+            x = int(landmark.x * frame_shape[1])
+            y = int(landmark.y * frame_shape[0])
+            points.append((x, y))
+
+        if len(points) < 21:
+            return False
+
+        # Точки указательного пальца
+        index_mcp = np.array(points[5])  # основание
+        index_pip = np.array(points[6])  # средний сустав
+        index_dip = np.array(points[7])  # верхний сустав
+        index_tip = np.array(points[8])  # кончик
+
+        vec_proximal = index_pip - index_mcp
+        vec_middle = index_dip - index_pip
+        vec_distal = index_tip - index_dip
+
+        norm_prox = np.linalg.norm(vec_proximal)
+        norm_mid = np.linalg.norm(vec_middle)
+        norm_dist = np.linalg.norm(vec_distal)
+
+        if norm_prox == 0 or norm_mid == 0 or norm_dist == 0:
+            return False
+
+        vec_prox_norm = vec_proximal / norm_prox
+        vec_mid_norm = vec_middle / norm_mid
+        vec_dist_norm = vec_distal / norm_dist
+
+        angle_prox_mid = np.dot(vec_prox_norm, vec_mid_norm)
+        angle_mid_dist = np.dot(vec_mid_norm, vec_dist_norm)
+
+        is_straight = angle_prox_mid > 0.85 and angle_mid_dist > 0.85
+
+        palm_center = np.array([points[0][0], points[0][1]])
+        tip_distance = np.linalg.norm(index_tip - palm_center)
+        mcp_distance = np.linalg.norm(index_mcp - palm_center)
+
+        is_extended = is_straight and tip_distance > mcp_distance * 0.8
+
+        return is_extended
+
+    @staticmethod
     def is_fist_gesture(hand_landmarks, frame_shape):
         points = []
         for landmark in hand_landmarks:
@@ -67,14 +116,17 @@ class HandGestureDetector:
         if len(points) < 21:
             return False
 
+        index_extended = HandGestureDetector.is_index_finger(hand_landmarks, frame_shape)
+        if index_extended:
+            return False
+
         finger_tips = [4, 8, 12, 16, 20]  # большой, указательный, средний, безымянный, мизинец
         finger_pips = [3, 6, 10, 14, 18]  # средние суставы
         finger_mcps = [2, 5, 9, 13, 17]  # основания
 
         # Центр ладони (приблизительно между основаниями пальцев)
-        palm_center_x = np.mean([points[i][0] for i in [0, 5, 9, 13, 17]])
-        palm_center_y = np.mean([points[i][1] for i in [0, 5, 9, 13, 17]])
-        palm_center = np.array([palm_center_x, palm_center_y])
+        palm_center = np.array([np.mean([points[i][0] for i in [0, 5, 9, 13, 17]]),
+                                np.mean([points[i][1] for i in [0, 5, 9, 13, 17]])])
 
         # Радиус ладони (среднее расстояние от центра до оснований)
         palm_radius = np.mean([np.linalg.norm(np.array(points[i]) - palm_center)
@@ -82,7 +134,20 @@ class HandGestureDetector:
 
         bent_fingers = 0
 
-        for i, (tip_idx, pip_idx, mcp_idx) in enumerate(zip(finger_tips, finger_pips, finger_mcps)):
+        # Проверяем большой палец отдельно
+        thumb_tip = np.array(points[4])
+        thumb_to_palm_dist = np.linalg.norm(thumb_tip - palm_center)
+        thumb_bent = thumb_to_palm_dist < palm_radius * 1.2
+
+        if thumb_bent:
+            bent_fingers += 1
+
+        # Проверяем остальные пальцы (начиная с указательного, который уже согнут)
+        for i in range(1, 5):
+            tip_idx = finger_tips[i]
+            pip_idx = finger_pips[i]
+            mcp_idx = finger_mcps[i]
+
             tip_point = np.array(points[tip_idx])
             pip_point = np.array(points[pip_idx])
             mcp_point = np.array(points[mcp_idx])
@@ -90,40 +155,32 @@ class HandGestureDetector:
             # Расстояние от кончика до центра ладони
             tip_to_palm_dist = np.linalg.norm(tip_point - palm_center)
 
-            if i == 0:  # большой палец
-                # Проверяем, находится ли кончик большого пальца близко к ладони
-                if tip_to_palm_dist < palm_radius * 1.3:
+            # Для остальных пальцев: проверяем, согнут ли палец
+            # Вычисляем угол между векторами от основания до среднего сустава и от среднего до кончика
+            vec1 = pip_point - mcp_point
+            vec2 = tip_point - pip_point
+
+            # Нормализуем векторы
+            norm1 = np.linalg.norm(vec1)
+            norm2 = np.linalg.norm(vec2)
+
+            if norm1 > 0 and norm2 > 0:
+                vec1_norm = vec1 / norm1
+                vec2_norm = vec2 / norm2
+                cos_angle = np.dot(vec1_norm, vec2_norm)
+
+                if cos_angle < 0.7 or tip_to_palm_dist < palm_radius * 1.3:
                     bent_fingers += 1
             else:
-                # Для остальных пальцев: проверяем, согнут ли палец
-                # Вычисляем угол между векторами от основания до среднего сустава и от среднего до кончика
-                vec1 = pip_point - mcp_point
-                vec2 = tip_point - pip_point
+                if tip_to_palm_dist < palm_radius * 1.3:
+                    bent_fingers += 1
 
-                # Нормализуем векторы
-                norm1 = np.linalg.norm(vec1)
-                norm2 = np.linalg.norm(vec2)
-
-                if norm1 > 0 and norm2 > 0:
-                    vec1_norm = vec1 / norm1
-                    vec2_norm = vec2 / norm2
-
-                    # Косинус угла между векторами
-                    cos_angle = np.dot(vec1_norm, vec2_norm)
-
-                    # Если угол большой (косинус маленький) - палец согнут
-                    if cos_angle < 0.5:  # угол больше 60 градусов
-                        bent_fingers += 1
-                    # Дополнительная проверка: кончик пальца близко к ладони
-                    elif tip_to_palm_dist < palm_radius * 1.2:
-                        bent_fingers += 1
-
-        # Также проверяем общую компактность руки
+        is_fist = bent_fingers >= 4
         all_points = np.array(points)
         hand_spread = np.max(np.linalg.norm(all_points - palm_center, axis=1))
 
-        # Если рука компактная и большинство пальцев согнуты - это кулак
-        is_fist = (bent_fingers >= 4 and hand_spread < palm_radius * 2.5) or bent_fingers >= 5
+        if hand_spread > palm_radius * 2.8:
+            is_fist = False
 
         return is_fist
 
@@ -163,10 +220,14 @@ class HandGestureDetector:
                 hand_detected = True
                 current_is_fist = self.is_fist_gesture(hand_landmarks, frame.shape)
 
-                if current_is_fist:
+                # Сглаживание детекции
+                self.fist_history.append(current_is_fist)
+                smoothed_is_fist = sum(self.fist_history) > len(self.fist_history) // 2
+
+                if smoothed_is_fist:
                     cv2.putText(annotated_frame, "FIST",
                                 (10, 60 + hand_idx * 40),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
 
                     # красный круг
                     center_x = int(np.mean([p[0] for p in points]))
@@ -181,6 +242,14 @@ class HandGestureDetector:
                     if vector_data:
                         norm_vector, start_point, end_point = vector_data
 
+                        # Сглаживание вектора
+                        self.vector_history.append(norm_vector)
+                        if len(self.vector_history) > 0:
+                            avg_vector = np.mean(self.vector_history, axis=0)
+                            avg_vector = avg_vector / np.linalg.norm(avg_vector)
+                        else:
+                            avg_vector = norm_vector
+
                         cv2.arrowedLine(annotated_frame, start_point, end_point,
                                         (0, 0, 255), 4, tipLength=0.2)
 
@@ -188,17 +257,18 @@ class HandGestureDetector:
                             if i < len(points):
                                 cv2.circle(annotated_frame, points[i], 6, (0, 0, 255), -1)
 
-                        hand_text = f"Hand {hand_idx}"
+                        hand_text = "INDEX FINGER"
                         cv2.putText(annotated_frame, hand_text,
                                     (10, 60 + hand_idx * 40),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
-                        vec_text = f"Vector: ({norm_vector[0]:.2f}, {norm_vector[1]:.2f})"
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+
+                        vec_text = f"Vector: ({avg_vector[0]:.2f}, {avg_vector[1]:.2f})"
                         cv2.putText(annotated_frame, vec_text,
-                                    (10, 60 + hand_idx * 40 + 25),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                                    (10, 60 + hand_idx * 40 + 30),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
                         if hand_idx == 0 and self.udp_server:
-                            self.udp_server.update_vector(norm_vector)
+                            self.udp_server.update_vector(avg_vector)
                             self.udp_server.update_fist_detected(False)
 
         if not hand_detected:
@@ -207,6 +277,8 @@ class HandGestureDetector:
                         0.7, (0, 0, 255), 2)
             if self.udp_server:
                 self.udp_server.update_fist_detected(False)
+                self.fist_history.clear()
+                self.vector_history.clear()
 
         cv2.putText(annotated_frame, f"FPS: {avg_fps:.1f}", (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
