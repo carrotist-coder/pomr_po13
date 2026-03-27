@@ -5,12 +5,12 @@ using UnityEngine;
 
 public class GlobalServiceLocator : MonoBehaviour
 {
-    private IFileService _fileManager;
+    private IFileService _fileService;
     private SceneLoader _sceneLoader;
 
     private void Awake()
     {
-        _fileManager = new FileManager();
+        _fileService = new FileService();
         
         _sceneLoader = GetComponent<SceneLoader>();
         
@@ -19,7 +19,7 @@ public class GlobalServiceLocator : MonoBehaviour
 
     private void RegisterServices()
     {
-        ServiceLocator.Global.Register<IFileService>(_fileManager);
+        ServiceLocator.Global.Register<IFileService>(_fileService);
         ServiceLocator.Global.Register<SceneLoader>(_sceneLoader);
     }
 }

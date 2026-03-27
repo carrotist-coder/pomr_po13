@@ -1,21 +1,35 @@
-using System.Collections;
-using System.Collections.Generic;
-using Unity.VisualScripting;
 using UnityEngine;
 
 public class AppBootstrap : MonoBehaviour
 {
-    void Start()
+    [SerializeField] private GraphViewConfig _graphViewConfig;
+    
+    private void Start()
     {
-        GameObject globalServices = new GameObject("GlobalServices");
-        DontDestroyOnLoad(globalServices);
+        InitializeGlobalServices();
+        LoadMainScene();
+    }
+    
+    private void InitializeGlobalServices()
+    {
+        var globalServicesObject = new GameObject("GlobalServices");
+        DontDestroyOnLoad(globalServicesObject);
         
-        globalServices.AddComponent<SceneLoader>();
+        var sceneLoader = globalServicesObject.AddComponent<SceneLoader>();
         
-        globalServices.AddComponent<GlobalServiceLocator>();
-
-        ServiceLocator.Global.ShowServices();
+        var fileService = new FileService();
+        ServiceLocator.Global.Register<IFileService>(fileService);
         
+        var udpService = globalServicesObject.AddComponent<UdpService>();
+        ServiceLocator.Global.Register<IUdpService>(udpService);
+        
+        ServiceLocator.Global.Register(sceneLoader);
+        
+        Debug.Log("Global services initialized");
+    }
+    
+    private void LoadMainScene()
+    {
         SceneLoader.LoadScene(SceneNames.MainScene);
     }
 }
