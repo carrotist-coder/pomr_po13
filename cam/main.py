@@ -37,6 +37,10 @@ class HandGestureDetector:
         self.fist_history = deque(maxlen=5)
         self.vector_history = deque(maxlen=3)
 
+        # для плавного перехода
+        self.fist_transition_counter = 0
+        self.FIST_TRANSITION_FRAMES = 8  # кадров для выхода из кулака
+
     @staticmethod
     def calculate_index_finger_vector(hand_landmarks, frame_shape):
         points = []
@@ -61,7 +65,7 @@ class HandGestureDetector:
         return None
 
     @staticmethod
-    def is_index_finger(hand_landmarks, frame_shape):
+    def is_index_finger(hand_landmarks, frame_shape, straight_threshold=0.88):
         points = []
         for landmark in hand_landmarks:
             x = int(landmark.x * frame_shape[1])
@@ -95,13 +99,13 @@ class HandGestureDetector:
         angle_prox_mid = np.dot(vec_prox_norm, vec_mid_norm)
         angle_mid_dist = np.dot(vec_mid_norm, vec_dist_norm)
 
-        is_straight = angle_prox_mid > 0.85 and angle_mid_dist > 0.85
+        is_straight = angle_prox_mid > straight_threshold and angle_mid_dist > straight_threshold
 
         palm_center = np.array([points[0][0], points[0][1]])
         tip_distance = np.linalg.norm(index_tip - palm_center)
         mcp_distance = np.linalg.norm(index_mcp - palm_center)
 
-        is_extended = is_straight and tip_distance > mcp_distance * 0.8
+        is_extended = is_straight and tip_distance > mcp_distance
 
         return is_extended
 
@@ -236,40 +240,60 @@ class HandGestureDetector:
 
                     if hand_idx == 0 and self.udp_server:
                         self.udp_server.update_fist_detected(True)
+                        #  self.udp_server.update_vector(None)
+                    self.fist_transition_counter = self.FIST_TRANSITION_FRAMES
                 else:
-                    # Обычная рука
-                    vector_data = self.calculate_index_finger_vector(hand_landmarks, frame.shape)
-                    if vector_data:
-                        norm_vector, start_point, end_point = vector_data
+                    # прямой ли указательный палец
+                    index_is_straight = self.is_index_finger(hand_landmarks, frame.shape, straight_threshold=0.88)
 
-                        # Сглаживание вектора
-                        self.vector_history.append(norm_vector)
-                        if len(self.vector_history) > 0:
-                            avg_vector = np.mean(self.vector_history, axis=0)
-                            avg_vector = avg_vector / np.linalg.norm(avg_vector)
-                        else:
-                            avg_vector = norm_vector
+                    # после выхода из кулака некоторое время не отправляем вектор
+                    if self.fist_transition_counter > 0:
+                        self.fist_transition_counter -= 1
+                        cv2.putText(annotated_frame, "EXITING FIST...",
+                                    (10, 60 + hand_idx * 40 + 60),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 165, 255), 1)
+                        index_is_straight = False
 
-                        cv2.arrowedLine(annotated_frame, start_point, end_point,
-                                        (0, 0, 255), 4, tipLength=0.2)
+                    if index_is_straight:
+                        vector_data = self.calculate_index_finger_vector(hand_landmarks, frame.shape)
+                        if vector_data:
+                            norm_vector, start_point, end_point = vector_data
 
-                        for i in [5, 6, 7, 8]:
-                            if i < len(points):
-                                cv2.circle(annotated_frame, points[i], 6, (0, 0, 255), -1)
+                            # Сглаживание вектора
+                            self.vector_history.append(norm_vector)
+                            if len(self.vector_history) > 0:
+                                avg_vector = np.mean(self.vector_history, axis=0)
+                                avg_vector = avg_vector / np.linalg.norm(avg_vector)
+                            else:
+                                avg_vector = norm_vector
 
-                        hand_text = "INDEX FINGER"
-                        cv2.putText(annotated_frame, hand_text,
+                            cv2.arrowedLine(annotated_frame, start_point, end_point,
+                                            (0, 0, 255), 4, tipLength=0.2)
+
+                            for i in [5, 6, 7, 8]:
+                                if i < len(points):
+                                    cv2.circle(annotated_frame, points[i], 6, (0, 0, 255), -1)
+
+                            hand_text = "INDEX FINGER"
+                            cv2.putText(annotated_frame, hand_text,
+                                        (10, 60 + hand_idx * 40),
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+
+                            vec_text = f"Vector: ({avg_vector[0]:.2f}, {avg_vector[1]:.2f})"
+                            cv2.putText(annotated_frame, vec_text,
+                                        (10, 60 + hand_idx * 40 + 30),
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+
+                            if hand_idx == 0 and self.udp_server:
+                                self.udp_server.update_vector(avg_vector)
+                                self.udp_server.update_fist_detected(False)
+                    else:
+                        cv2.putText(annotated_frame, "INDEX FINGER BENT - NO VECTOR",
                                     (10, 60 + hand_idx * 40),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-
-                        vec_text = f"Vector: ({avg_vector[0]:.2f}, {avg_vector[1]:.2f})"
-                        cv2.putText(annotated_frame, vec_text,
-                                    (10, 60 + hand_idx * 40 + 30),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
                         if hand_idx == 0 and self.udp_server:
-                            self.udp_server.update_vector(avg_vector)
                             self.udp_server.update_fist_detected(False)
+                            # self.udp_server.update_vector(None)
 
         if not hand_detected:
             cv2.putText(annotated_frame, "NO HAND DETECTED",
@@ -279,6 +303,7 @@ class HandGestureDetector:
                 self.udp_server.update_fist_detected(False)
                 self.fist_history.clear()
                 self.vector_history.clear()
+                self.fist_transition_counter = 0
 
         cv2.putText(annotated_frame, f"FPS: {avg_fps:.1f}", (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
