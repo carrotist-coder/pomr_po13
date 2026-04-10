@@ -7,6 +7,7 @@ using Unity.VisualScripting;
 public class GraphView : MonoBehaviour, IGraphView
 {
     [SerializeField] private GraphViewConfig _graphViewConfig;
+    [SerializeField] private MarkdownEditorView _editorView;
     [SerializeField] private Camera _mainCamera; 
 
     private IFileService _fileService;
@@ -233,6 +234,11 @@ public class GraphView : MonoBehaviour, IGraphView
     
     private void NavigateToNode(FileNode node)
     {
+        if (_currentNode != null && !_currentNode.IsDirectory)
+        {
+            _editorView.CloseAndSave();
+        }
+        
         SetNodeVisual(_currentNode, _graphViewConfig.NormalColor, Constants.Graph.NormalScale);
         
         _currentNode = node;
@@ -245,6 +251,11 @@ public class GraphView : MonoBehaviour, IGraphView
         if (_graphViewConfig.LogDirections)
         {
             LogNodeDirections(node);
+        }
+        
+        if (!_currentNode.IsDirectory)
+        {
+            _editorView.OpenFile(_currentNode);
         }
     }
     
