@@ -7,6 +7,7 @@ using Unity.VisualScripting;
 public class GraphView : MonoBehaviour, IGraphView
 {
     [SerializeField] private GraphViewConfig _graphViewConfig;
+    [SerializeField] private MarkdownEditorView _editorView;
     [SerializeField] private Camera _mainCamera; 
 
     private IFileService _fileService;
@@ -47,101 +48,110 @@ public class GraphView : MonoBehaviour, IGraphView
 
         private void InitializeStrategies()
         {
-            //_navigationStrategy = new AngularNavigationStrategy(this, _graphViewConfig.SelectionTheshold);
-            _navigationStrategy = new AngularNavigationStrategy(this, Constants.Input.SelectionDotThreshold);
+            _navigationStrategy = new AngularNavigationStrategy(this, _graphViewConfig.SelectionThreshold);
+            //_navigationStrategy = new AngularNavigationStrategy(this, Constants.Input.SelectionDotThreshold);
             _graphLayoutStrategy = new RadialLayoutStrategy(_graphViewConfig.RadiusStep);
             //_graphLayoutStrategy = new RadialLayoutStrategy(Constants.Graph.DefaultRadiusStep);
         }
     
     #endregion
 
-    private void Start()
-    {
-        BuildGraph();
-
-        if (_rootNode != null )
+    #region Graph Building
+    
+        private void Start()
         {
-            _currentNode = _rootNode;
-            CenterCameraOnNode(_currentNode);
-            HighlightNode(_currentNode);
-        }
+            BuildGraph();
 
-        if (_graphViewConfig.LogDirections)
-        {
-            LogAllNodeDirections();
-        }
-    }
-
-    private void BuildGraph()
-    {
-        _rootNode = _fileService.GetFileStructure();
-
-        if (_rootNode == null)
-        {
-            Debug.LogError($"Failed to load file structure");
-            return;
-        }
-
-        DrawNodeRecursive(_rootNode, 0, 360, 0);
-    }
-
-    private void DrawNodeRecursive(FileNode node, float startAngle, float endAngle, int depth, Vector3? parentPosition = null)
-    {
-        Vector2 position = _graphLayoutStrategy.CalculatePosition(startAngle, endAngle, depth);
-        GameObject nodeObject = CreateNodeObject(node, position);
-
-        _nodeObjects[node] = nodeObject;
-
-        if (parentPosition.HasValue)
-        {
-            DrawConnection(parentPosition.Value, position);
-        }
-
-        if (node.Children.Count > 0)
-        {
-            int totalWeight = node.Children.Sum(child => child.GetLeafCount());
-            float currentAngle = startAngle;
-            
-            foreach (var child in node.Children)
+            if (_rootNode != null )
             {
-                int weight = child.GetLeafCount();
-                float angleRange = (weight / (float)totalWeight) * (endAngle - startAngle);
-                
-                DrawNodeRecursive(child, currentAngle, currentAngle + angleRange, depth + 1, position);
-                currentAngle += angleRange;
+                _currentNode = _rootNode;
+                CenterCameraOnNode(_currentNode);
+                HighlightNode(_currentNode);
+            }
+
+            if (_graphViewConfig.LogDirections)
+            {
+                LogAllNodeDirections();
             }
         }
-    }
 
-    private GameObject CreateNodeObject(FileNode node, Vector3 position)
-    {
-        GameObject prefab = node.IsDirectory ? _graphViewConfig.FolderPrefab : _graphViewConfig.FilePrefab;
-        GameObject obj = Instantiate(prefab, position, Quaternion.identity, transform);
-        
-        TMP_Text text = obj.GetComponentInChildren<TMP_Text>();
-        if (text != null)
+        private void BuildGraph()
         {
-            text.text = node.Name;
+            _rootNode = _fileService.GetFileStructure();
+
+            if (_rootNode == null)
+            {
+                Debug.LogError($"Failed to load file structure");
+                return;
+            }
+
+            DrawNodeRecursive(_rootNode, 0, 360, 0);
+        }
+
+        private void DrawNodeRecursive(FileNode node, float startAngle, float endAngle, int depth, Vector3? parentPosition = null)
+        {
+            Vector2 position = _graphLayoutStrategy.CalculatePosition(startAngle, endAngle, depth);
+            GameObject nodeObject = CreateNodeObject(node, position);
+
+            _nodeObjects[node] = nodeObject;
+
+            if (parentPosition.HasValue)
+            {
+                DrawConnection(parentPosition.Value, position);
+            }
+
+            if (node.Children.Count > 0)
+            {
+                int totalWeight = node.Children.Sum(child => child.GetLeafCount());
+                float currentAngle = startAngle;
+                
+                foreach (var child in node.Children)
+                {
+                    int weight = child.GetLeafCount();
+                    float angleRange = (weight / (float)totalWeight) * (endAngle - startAngle);
+                    
+                    DrawNodeRecursive(child, currentAngle, currentAngle + angleRange, depth + 1, position);
+                    currentAngle += angleRange;
+                }
+            }
+        }
+
+        private GameObject CreateNodeObject(FileNode node, Vector3 position)
+        {
+            GameObject prefab = node.IsDirectory ? _graphViewConfig.FolderPrefab : _graphViewConfig.FilePrefab;
+            GameObject obj = Instantiate(prefab, position, Quaternion.identity, transform);
+            
+            TMP_Text text = obj.GetComponentInChildren<TMP_Text>();
+            if (text != null)
+            {
+                text.text = node.Name;
+            }
+            
+            return obj;
         }
         
-        return obj;
-    }
+        private void DrawConnection(Vector3 start, Vector3 end)
+        {
+            var lineObject = new GameObject("Connection");
+            lineObject.transform.SetParent(transform);
+
+            var lineRenderer = lineObject.AddComponent<LineRenderer>();
+            lineRenderer.material = _graphViewConfig.LineMaterial;
+            lineRenderer.startWidth = _graphViewConfig.LineWidth;
+            lineRenderer.endWidth = _graphViewConfig.LineWidth;
+
+            lineRenderer.positionCount = 2;
+
+            float zOffset = 1f;
+            Vector3 offset = new Vector3(0f, 0f, zOffset);
+
+            lineRenderer.SetPosition(0, start + offset);
+            lineRenderer.SetPosition(1, end + offset);
+
+            _lines.Add(lineRenderer);
+        }
     
-    private void DrawConnection(Vector3 start, Vector3 end)
-    {
-        var lineObject = new GameObject("Connection");
-        lineObject.transform.SetParent(transform);
-        
-        var lineRenderer = lineObject.AddComponent<LineRenderer>();
-        lineRenderer.material = _graphViewConfig.LineMaterial;
-        lineRenderer.startWidth = _graphViewConfig.LineWidth;
-        lineRenderer.endWidth = _graphViewConfig.LineWidth;
-        lineRenderer.positionCount = 2;
-        lineRenderer.SetPosition(0, start);
-        lineRenderer.SetPosition(1, end);
-        
-        _lines.Add(lineRenderer);
-    }
+    #endregion
     
     private void Update()
     {
@@ -170,7 +180,7 @@ public class GraphView : MonoBehaviour, IGraphView
     private void ProcessNavigation(Vector2 direction)
     {
         var bestMatch = _navigationStrategy.FindBestMatch(_currentNode, direction);
-        Debug.Log($"Candidates: {_currentNode.Children.Count + (_currentNode.Parent != null ? 1 : 0)}");
+        //Debug.Log($"Candidates: {_currentNode.Children.Count + (_currentNode.Parent != null ? 1 : 0)}");
         
         if (bestMatch != null)
         {
@@ -224,6 +234,11 @@ public class GraphView : MonoBehaviour, IGraphView
     
     private void NavigateToNode(FileNode node)
     {
+        if (_currentNode != null && !_currentNode.IsDirectory)
+        {
+            _editorView.CloseAndSave();
+        }
+        
         SetNodeVisual(_currentNode, _graphViewConfig.NormalColor, Constants.Graph.NormalScale);
         
         _currentNode = node;
@@ -237,15 +252,23 @@ public class GraphView : MonoBehaviour, IGraphView
         {
             LogNodeDirections(node);
         }
+        
+        if (!_currentNode.IsDirectory)
+        {
+            _editorView.OpenFile(_currentNode);
+        }
     }
     
     private void CenterCameraOnNode(FileNode node)
     {
         if (!_nodeObjects.TryGetValue(node, out var obj)) 
             return;
-            
-        var position = obj.transform.position;
-        _mainCamera.transform.position = new Vector3(position.x, position.y, Constants.Camera.DefaultZPosition);
+
+        float speed = 5f;
+        Vector3 position = obj.transform.position;
+        
+        _mainCamera.GetComponent<CameraMovement>().SetTarget(position);
+        //_mainCamera.transform.position = new Vector3(position.x, position.y, Constants.Camera.DefaultZPosition);
     }
     
     private void SetNodeVisual(FileNode node, Color color, float scale)

@@ -21,7 +21,7 @@ MonoBehaviour:
   CameraOffsetStrength: 2
   CameraReturnSpeed: 3
   SelectionThreshold: 0.8
-  RequiredStableFrames: 2
+  RequiredStableFrames: 1
   NormalColor: {r: 1, g: 1, b: 1, a: 1}
   SelectedColor: {r: 1, g: 0.92156863, b: 0.015686275, a: 1}
   CandidateColor: {r: 0, g: 1, b: 1, a: 1}

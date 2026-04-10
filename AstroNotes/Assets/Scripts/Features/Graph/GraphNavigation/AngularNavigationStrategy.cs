@@ -56,8 +56,8 @@ public class AngularNavigationStrategy : INavigationStrategy
             }
             
             float dot = Vector2.Dot(direction, nodeDirection);
-            
-            if (dot > bestDot)// && dot > _selectionThreshold)
+            Debug.Log($"Dot value: {dot}");
+            if (dot > bestDot )//&& dot > _selectionThreshold)
             {
                 bestDot = dot;
                 bestMatch = node;

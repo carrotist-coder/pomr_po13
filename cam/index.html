@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Текстовый редактор</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        .editor-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(44, 44, 44, 0.95);
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        .editor-container.visible {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        /* Окно редактора с анимацией масштаба */
+        .editor-window {
+            width: 90%;
+            max-width: 1300px;
+            height: 90%;
+            background: #2c2c2c;
+            border-radius: 16px;
+            border: 2px solid #4a4a4a;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            transform: scale(0.95);
+            transition: transform 0.3s ease;
+        }
+
+        .editor-container.visible .editor-window {
+            transform: scale(1);
+        }
+
+        /* Верхняя панель */
+        .editor-header {
+            background: #1e1e1e;
+            padding: 16px 24px;
+            border-bottom: 1px solid #3f3f3f;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .file-info {
+            color: #dcdcdc;
+            font-size: 16px;
+            min-width: 200px;
+        }
+
+        #fileName {
+            color: #4caf50;
+            font-weight: bold;
+        }
+
+        .mode-switch-container {
+            display: flex;
+            justify-content: center;
+            flex: 1;
+        }
+
+        .unified-toggle {
+            display: inline-flex;
+            background: #1a1a1a;
+            border-radius: 60px;
+            padding: 5px;
+            box-shadow: inset 0 2px 5px rgba(0,0,0,0.6), 0 2px 6px rgba(0,0,0,0.3);
+            border: 1px solid #3e3e3e;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.2s ease;
+            position: relative;
+            width: 280px;
+            height: 58px;
+        }
+
+        .toggle-track {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            border-radius: 60px;
+            background: #101010;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 12px;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            top: 4px;
+            left: 4px;
+            width: calc(50% - 8px);
+            height: calc(100% - 8px);
+            background: linear-gradient(135deg, #007acc, #005f99);
+            border-radius: 60px;
+            transition: transform 0.35s cubic-bezier(0.2, 0.9, 0.4, 1.1);
+            box-shadow: 0 2px 10px rgba(0, 122, 204, 0.5);
+            z-index: 1;
+        }
+
+        .unified-toggle.raw-mode .toggle-slider {
+            transform: translateX(calc(100% + 8px));
+        }
+
+        .toggle-label {
+            flex: 1;
+            text-align: center;
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            z-index: 2;
+            transition: color 0.25s ease;
+            pointer-events: none;
+            color: #8a8a8a;
+            font-family: inherit;
+            padding: 8px 0;
+        }
+
+        .toggle-label.preview-label {
+            color: #ffffff;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+        }
+
+        .unified-toggle.raw-mode .toggle-label.preview-label {
+            color: #9e9e9e;
+        }
+
+        .unified-toggle.raw-mode .toggle-label.raw-label {
+            color: #ffffff;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+        }
+
+        .toggle-label.raw-label {
+            color: #9e9e9e;
+        }
+
+        .unified-toggle:hover {
+            border-color: #007acc;
+            box-shadow: 0 0 8px rgba(0,122,204,0.4);
+            transform: scale(1.01);
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            color: #dcdcdc;
+            font-size: 32px;
+            cursor: pointer;
+            padding: 0 16px;
+            transition: all 0.2s;
+            line-height: 1;
+            min-width: 60px;
+        }
+
+        .close-btn:hover {
+            color: #ff5555;
+            transform: scale(1.15);
+        }
+
+        /* Панель инструментов */
+        .toolbar {
+            background: #252525;
+            padding: 12px 20px;
+            border-bottom: 1px solid #3f3f3f;
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .tool-group {
+            display: flex;
+            gap: 4px;
+            align-items: center;
+        }
+
+        .tool-divider {
+            width: 1px;
+            height: 28px;
+            background: #3f3f3f;
+            margin: 0 6px;
+        }
+
+        .tool-btn {
+            background: #333;
+            border: 1px solid #4a4a4a;
+            color: #e0e0e0;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s;
+            min-width: 40px;
+            height: 36px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+        }
+
+        .tool-btn:hover {
+            background: #4a4a4a;
+            border-color: #007acc;
+            transform: translateY(-1px);
+            box-shadow: 0 3px 6px rgba(0,0,0,0.3);
+        }
+
+        .tool-btn:active {
+            transform: translateY(1px);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+        }
+
+        .tool-btn-bold {
+            font-weight: 900;
+            font-size: 16px;
+        }
+
+        .tool-btn-italic {
+            font-style: italic;
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        .tool-btn-strike {
+            text-decoration: line-through;
+            font-size: 14px;
+        }
+
+        .tool-btn-heading {
+            background: #2a2a2a;
+            font-family: 'Consolas', monospace;
+        }
+
+        .tool-btn-list {
+            background: #2a2a2a;
+        }
+
+        .tool-btn-link {
+            background: #2a4a6a;
+        }
+
+        /* Основная область */
+        .editor-content {
+            flex: 1;
+            overflow: hidden;
+            background: #1e1e1e;
+            position: relative;
+        }
+
+        #rawEditor, #previewArea {
+            width: 100%;
+            height: 100%;
+            padding: 24px;
+            overflow-y: auto;
+            border: none;
+            outline: none;
+            background: #1e1e1e;
+            color: #dcdcdc;
+            font-family: 'Segoe UI', 'Courier New', monospace;
+            font-size: 16px;
+            line-height: 1.7;
+            resize: none;
+            transition: opacity 0.25s ease;
+        }
+
+        #rawEditor:focus {
+            border-left: none;
+            outline: none;
+        }
+
+        #rawEditor {
+            border-left: none;
+            outline: none;
+        }
+
+        textarea:focus, div:focus {
+            outline: none;
+        }
+
+        .editor-content textarea,
+        .editor-content div {
+            margin: 0;
+            border: none;
+            box-sizing: border-box;
+        }
+
+        .markdown-body {
+            background: #1e1e1e !important;
+            color: #e0e0e0 !important;
+            padding: 24px !important;
+            font-size: 18px !important;
+            line-height: 1.8 !important;
+        }
+
+        .markdown-body h1 {
+            font-size: 2.5em !important;
+            border-bottom: 2px solid #3f3f3f;
+            padding-bottom: 0.3em;
+            margin-top: 24px;
+            margin-bottom: 16px;
+        }
+
+        .markdown-body h2 {
+            font-size: 2em !important;
+            border-bottom: 1px solid #3f3f3f;
+            padding-bottom: 0.3em;
+            margin-top: 24px;
+            margin-bottom: 16px;
+        }
+
+        .markdown-body h3 {
+            font-size: 1.7em !important;
+            margin-top: 24px;
+            margin-bottom: 16px;
+        }
+
+        .markdown-body h4 {
+            font-size: 1.5em !important;
+            margin-top: 24px;
+            margin-bottom: 16px;
+        }
+
+        .markdown-body h5 {
+            font-size: 1.3em !important;
+            margin-top: 24px;
+            margin-bottom: 16px;
+        }
+
+        .markdown-body h6 {
+            font-size: 1.1em !important;
+            margin-top: 24px;
+            margin-bottom: 16px;
+        }
+
+        .markdown-body p {
+            margin-bottom: 16px;
+            font-size: 18px;
+        }
+
+        .markdown-body a {
+            color: #6cb2ff !important;
+            text-decoration: none;
+            border-bottom: 1px solid #6cb2ff;
+        }
+
+        .markdown-body a:hover {
+            color: #8ec5ff !important;
+            border-bottom: 2px solid #8ec5ff;
+        }
+
+        .markdown-body code {
+            background-color: #2c2c2c;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            color: #f48771;
+        }
+
+        .markdown-body pre {
+            background-color: #2c2c2c;
+            padding: 16px;
+            border-radius: 8px;
+            overflow-x: auto;
+            border: 1px solid #3f3f3f;
+        }
+
+        .markdown-body blockquote {
+            border-left: 4px solid #007acc;
+            padding-left: 20px;
+            color: #bbb;
+            margin: 16px 0;
+            font-style: italic;
+        }
+
+        .markdown-body ul, .markdown-body ol {
+            padding-left: 30px;
+            margin-bottom: 16px;
+        }
+
+        .markdown-body li {
+            margin-bottom: 8px;
+        }
+
+        .status-bar {
+            background: #1e1e1e;
+            padding: 8px 24px;
+            border-top: 1px solid #3f3f3f;
+            font-size: 14px;
+            color: #999;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .editor-content {
+            position: relative;
+        }
+
+        #rawEditor, #previewArea {
+            position: absolute;
+            top: 0;
+            left: 0;
+            transition: opacity 0.3s ease, transform 0.3s ease;
+        }
+
+        #rawEditor.hidden, #previewArea.hidden {
+            opacity: 0;
+            pointer-events: none;
+            transform: translateX(-10px);
+        }
+
+        #rawEditor:not(.hidden), #previewArea:not(.hidden) {
+            opacity: 1;
+            transform: translateX(0);
+        }
+    </style>
+</head>
+<body>
+    <div class="editor-container" id="editorContainer">
+        <div class="editor-window">
+            <div class="editor-header">
+                <div class="file-info">
+                    <span id="fileName">—</span>
+                </div>
+                <div class="mode-switch-container">
+                    <div class="unified-toggle" id="unifiedToggle">
+                        <div class="toggle-track">
+                            <div class="toggle-slider"></div>
+                            <div class="toggle-label preview-label">Preview</div>
+                            <div class="toggle-label raw-label">Raw</div>
+                        </div>
+                    </div>
+                </div>
+                <button class="close-btn" id="closeBtn">✕</button>
+            </div>
+
+            <div class="toolbar" id="toolbar">
+                <div class="tool-group">
+                    <button class="tool-btn tool-btn-bold" id="boldBtn" title="Жирный (Ctrl+B)">B</button>
+                    <button class="tool-btn tool-btn-italic" id="italicBtn" title="Курсив (Ctrl+I)"><i>I</i></button>
+                    <button class="tool-btn tool-btn-strike" id="strikeBtn" title="Зачёркнутый"><s>S</s></button>
+                </div>
+
+                <div class="tool-divider"></div>
+
+                <div class="tool-group">
+                    <button class="tool-btn tool-btn-heading" id="h1Btn" title="Заголовок 1 (Ctrl+1)">H1</button>
+                    <button class="tool-btn tool-btn-heading" id="h2Btn" title="Заголовок 2 (Ctrl+2)">H2</button>
+                    <button class="tool-btn tool-btn-heading" id="h3Btn" title="Заголовок 3 (Ctrl+3)">H3</button>
+                    <button class="tool-btn tool-btn-heading" id="h4Btn" title="Заголовок 4 (Ctrl+4)">H4</button>
+                    <button class="tool-btn tool-btn-heading" id="h5Btn" title="Заголовок 5 (Ctrl+5)">H5</button>
+                    <button class="tool-btn tool-btn-heading" id="h6Btn" title="Заголовок 6 (Ctrl+6)">H6</button>
+                </div>
+
+                <div class="tool-divider"></div>
+
+                <div class="tool-group">
+                    <button class="tool-btn tool-btn-list" id="listBtn" title="Маркированный список">• List</button>
+                    <button class="tool-btn tool-btn-link" id="linkBtn" title="Вставить ссылку">🔗 Link</button>
+                </div>
+            </div>
+
+            <div class="editor-content">
+                <textarea id="rawEditor" placeholder="Введите текст заметки..."></textarea>
+                <div id="previewArea" class="markdown-body"></div>
+            </div>
+
+            <div class="status-bar">
+                <span id="statusText">Готово</span>
+                <span id="cursorPos">Строка 1, столбец 1</span>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script>
+        let currentFilePath = 'example.md';
+        let isOpen = false;
+        let currentMode = 'preview';   // 'preview' или 'raw'
+        let currentContent = '# Добро пожаловать!\n\nЭто пример **Markdown** текста.\n\n## Возможности:\n\n- *Курсив*\n- **Жирный**\n- ~~Зачёркнутый~~\n- [Ссылка на пример](https://example.com)\n\n### Заголовок третьего уровня\n\nОбычный текст с **форматированием** и *стилями*.';
+
+        const container = document.getElementById('editorContainer');
+        const rawEditor = document.getElementById('rawEditor');
+        const previewArea = document.getElementById('previewArea');
+        const fileNameSpan = document.getElementById('fileName');
+        const statusText = document.getElementById('statusText');
+        const cursorPos = document.getElementById('cursorPos');
+        const toolbarDiv = document.getElementById('toolbar');
+        const unifiedToggle = document.getElementById('unifiedToggle');
+
+        function init() {
+            if (typeof marked !== 'undefined') {
+                marked.setOptions({
+                    breaks: true,
+                    gfm: true,
+                    headerIds: true,
+                    mangle: false
+                });
+            }
+
+            rawEditor.addEventListener('input', onRawInput);
+            rawEditor.addEventListener('keydown', onKeyDown);
+            rawEditor.addEventListener('click', updateCursorPosition);
+            rawEditor.addEventListener('keyup', updateCursorPosition);
+
+            unifiedToggle.addEventListener('click', () => {
+                if (currentMode === 'preview') {
+                    switchMode('raw');
+                } else {
+                    switchMode('preview');
+                }
+            });
+
+            document.getElementById('boldBtn').onclick = () => wrapSelection('**', '**');
+            document.getElementById('italicBtn').onclick = () => wrapSelection('*', '*');
+            document.getElementById('strikeBtn').onclick = () => wrapSelection('~~', '~~');
+            document.getElementById('h1Btn').onclick = () => insertHeading(1);
+            document.getElementById('h2Btn').onclick = () => insertHeading(2);
+            document.getElementById('h3Btn').onclick = () => insertHeading(3);
+            document.getElementById('h4Btn').onclick = () => insertHeading(4);
+            document.getElementById('h5Btn').onclick = () => insertHeading(5);
+            document.getElementById('h6Btn').onclick = () => insertHeading(6);
+            document.getElementById('listBtn').onclick = insertList;
+            document.getElementById('linkBtn').onclick = insertLink;
+            document.getElementById('closeBtn').onclick = closeEditor;
+
+            openEditor('example.md', currentContent);
+        }
+
+        function openEditor(filePath, content) {
+            currentFilePath = filePath;
+            currentContent = content || '';
+            rawEditor.value = currentContent;
+            updatePreview(currentContent);
+            const fileName = filePath.split(/[\\/]/).pop();
+            fileNameSpan.textContent = fileName;
+            container.classList.add('visible');
+            isOpen = true;
+            switchMode('preview');
+            updateStatus(`Открыт файл: ${fileName}`);
+        }
+
+        function closeEditor() {
+            autoSave();
+            container.classList.remove('visible');
+            isOpen = false;
+            updateStatus('Редактор закрыт, файл сохранён');
+        }
+
+        function autoSave() {
+            const content = rawEditor.value;
+            console.log('Автосохранение:', currentFilePath);
+            localStorage.setItem('editor_backup_' + currentFilePath, content);
+            updateStatus('Автосохранено');
+            setTimeout(() => updateStatus('Готово'), 1500);
+        }
+
+        function switchMode(mode) {
+            currentMode = mode;
+            if (mode === 'raw') {
+                unifiedToggle.classList.add('raw-mode');
+                toolbarDiv.style.display = 'flex';
+                rawEditor.classList.remove('hidden');
+                previewArea.classList.add('hidden');
+                rawEditor.focus({ preventScroll: true });
+                updateStatus('Режим: Редактирование (Raw)');
+            } else {
+                unifiedToggle.classList.remove('raw-mode');
+                toolbarDiv.style.display = 'none';
+                rawEditor.classList.add('hidden');
+                previewArea.classList.remove('hidden');
+                updatePreview(rawEditor.value);
+                updateStatus('Режим: Просмотр (Preview)');
+            }
+            if (mode === 'raw') updateCursorPosition();
+        }
+
+        function updatePreview(markdownText) {
+            if (typeof marked !== 'undefined') {
+                try {
+                    previewArea.innerHTML = marked.parse(markdownText || '');
+                    previewArea.querySelectorAll('a').forEach(link => {
+                        link.setAttribute('target', '_blank');
+                    });
+                } catch(e) {
+                    previewArea.innerHTML = '<p style="color: #ff5555;">Ошибка парсинга Markdown</p>';
+                }
+            } else {
+                previewArea.innerHTML = `<pre>${escapeHtml(markdownText || '')}</pre>`;
+            }
+        }
+
+        function onRawInput() {
+            const newContent = rawEditor.value;
+            currentContent = newContent;
+            if (currentMode === 'preview') {
+                updatePreview(newContent);
+            }
+        }
+
+        function wrapSelection(startTag, endTag) {
+            const start = rawEditor.selectionStart;
+            const end = rawEditor.selectionEnd;
+            if (start === end) {
+                const beforeText = rawEditor.value.substring(0, start);
+                const afterText = rawEditor.value.substring(end);
+                rawEditor.value = beforeText + startTag + endTag + afterText;
+                rawEditor.selectionStart = start + startTag.length;
+                rawEditor.selectionEnd = start + startTag.length;
+            } else {
+                const selectedText = rawEditor.value.substring(start, end);
+                const beforeText = rawEditor.value.substring(0, start);
+                const afterText = rawEditor.value.substring(end);
+                rawEditor.value = beforeText + startTag + selectedText + endTag + afterText;
+                rawEditor.selectionStart = start + startTag.length;
+                rawEditor.selectionEnd = end + startTag.length;
+            }
+            rawEditor.focus({ preventScroll: true });
+            onRawInput();
+            updateCursorPosition();
+        }
+
+        function insertHeading(level) {
+            const prefix = '#'.repeat(level) + ' ';
+            const start = rawEditor.selectionStart;
+            const lineStart = rawEditor.value.lastIndexOf('\n', start - 1) + 1;
+            let lineEnd = rawEditor.value.indexOf('\n', start);
+            if (lineEnd === -1) lineEnd = rawEditor.value.length;
+            const currentLine = rawEditor.value.substring(lineStart, lineEnd);
+            const headingMatch = currentLine.match(/^#{1,6}\s/);
+
+            if (headingMatch) {
+                const beforeLine = rawEditor.value.substring(0, lineStart);
+                const afterLine = rawEditor.value.substring(lineEnd);
+                const newLine = prefix + currentLine.replace(/^#{1,6}\s/, '');
+                rawEditor.value = beforeLine + newLine + afterLine;
+                rawEditor.selectionStart = lineStart + prefix.length;
+                rawEditor.selectionEnd = lineStart + prefix.length;
+            } else {
+                const beforeLine = rawEditor.value.substring(0, lineStart);
+                const afterLine = rawEditor.value.substring(lineStart);
+                rawEditor.value = beforeLine + prefix + afterLine;
+                rawEditor.selectionStart = lineStart + prefix.length;
+                rawEditor.selectionEnd = lineStart + prefix.length;
+            }
+            rawEditor.focus({ preventScroll: true });
+            onRawInput();
+            updateCursorPosition();
+        }
+
+        function insertList() {
+            const start = rawEditor.selectionStart;
+            const lineStart = rawEditor.value.lastIndexOf('\n', start - 1) + 1;
+            let lineEnd = rawEditor.value.indexOf('\n', start);
+            if (lineEnd === -1) lineEnd = rawEditor.value.length;
+            const currentLine = rawEditor.value.substring(lineStart, lineEnd);
+            if (currentLine.match(/^-\s/)) {
+                const beforeLine = rawEditor.value.substring(0, lineStart);
+                const afterLine = rawEditor.value.substring(lineEnd);
+                const newLine = currentLine.replace(/^-\s/, '');
+                rawEditor.value = beforeLine + newLine + afterLine;
+                rawEditor.selectionStart = lineStart;
+                rawEditor.selectionEnd = lineStart;
+            } else {
+                const beforeLine = rawEditor.value.substring(0, lineStart);
+                const afterLine = rawEditor.value.substring(lineStart);
+                rawEditor.value = beforeLine + '- ' + afterLine;
+                rawEditor.selectionStart = lineStart + 2;
+                rawEditor.selectionEnd = lineStart + 2;
+            }
+            rawEditor.focus({ preventScroll: true });
+            onRawInput();
+            updateCursorPosition();
+        }
+
+        function insertLink() {
+            const selectedText = rawEditor.value.substring(rawEditor.selectionStart, rawEditor.selectionEnd);
+            if (selectedText) {
+                wrapSelection('[', `](url)`);
+                const pos = rawEditor.selectionStart;
+                rawEditor.selectionStart = pos - 4;
+                rawEditor.selectionEnd = pos - 1;
+            } else {
+                const start = rawEditor.selectionStart;
+                const beforeText = rawEditor.value.substring(0, start);
+                const afterText = rawEditor.value.substring(start);
+                rawEditor.value = beforeText + '[Текст ссылки](url)' + afterText;
+                rawEditor.selectionStart = start + 1;
+                rawEditor.selectionEnd = start + 13;
+                rawEditor.focus({ preventScroll: true });
+            }
+            onRawInput();
+            updateCursorPosition();
+        }
+
+        function updateStatus(message) {
+            statusText.textContent = message;
+        }
+
+        function updateCursorPosition() {
+            const text = rawEditor.value;
+            const cursorPosIdx = rawEditor.selectionStart;
+            const lines = text.substr(0, cursorPosIdx).split('\n');
+            const line = lines.length;
+            const col = lines[lines.length - 1].length + 1;
+            cursorPos.textContent = `Строка ${line}, столбец ${col}`;
+        }
+
+        function onKeyDown(e) {
+            if (e.ctrlKey || e.metaKey) {
+                switch(e.key) {
+                    case 'b': e.preventDefault(); wrapSelection('**', '**'); break;
+                    case 'i': e.preventDefault(); wrapSelection('*', '*'); break;
+                    case '1': e.preventDefault(); insertHeading(1); break;
+                    case '2': e.preventDefault(); insertHeading(2); break;
+                    case '3': e.preventDefault(); insertHeading(3); break;
+                    case '4': e.preventDefault(); insertHeading(4); break;
+                    case '5': e.preventDefault(); insertHeading(5); break;
+                    case '6': e.preventDefault(); insertHeading(6); break;
+                    case 's': e.preventDefault(); autoSave(); break;
+                }
+            }
+            if (e.key === 'Escape' && isOpen) closeEditor();
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        init();
+    </script>
+</body>
+</html>
