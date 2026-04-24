@@ -264,7 +264,6 @@ public class GraphView : MonoBehaviour, IGraphView
         if (!_nodeObjects.TryGetValue(node, out var obj)) 
             return;
 
-        float speed = 5f;
         Vector3 position = obj.transform.position;
         
         _mainCamera.GetComponent<CameraMovement>().SetTarget(position);
